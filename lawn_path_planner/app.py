@@ -330,7 +330,8 @@ def main():
                 if len(obs) >= 2:
                     pygame.draw.lines(screen, config.COL_BLOCK, True, obs, 2)
             if active_obstacle_px:
-                pygame.draw.lines(screen, config.COL_BLOCK, False, active_obstacle_px, 2)
+                if len(active_obstacle_px) >= 2:
+                    pygame.draw.lines(screen, config.COL_BLOCK, False, active_obstacle_px, 2)
                 for p in active_obstacle_px:
                     pygame.draw.circle(screen, config.COL_BLOCK, p, 3)
 
