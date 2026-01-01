@@ -76,6 +76,45 @@ def main():
             return False
         return True
 
+    def trigger_planning():
+        nonlocal mode, paused, plan, status_msg, cells_per_m
+
+        if len(poly_px) < 3:
+            status_msg = "Need at least 3 points."
+            return
+
+        obstacles_all_px = list(obstacles_px)
+        if len(active_obstacle_px) >= 3:
+            obstacles_all_px.append(list(active_obstacle_px))
+
+        poly_m = poly_px_to_m(poly_px, scale_m_per_px, origin_px)
+        obstacles_m = [poly_px_to_m(ob, scale_m_per_px, origin_px) for ob in obstacles_all_px]
+        capped = maybe_cap_resolution(poly_m, float(cells_per_m), blade_w_m, config.MAX_GRID_CELLS)
+        if capped != float(cells_per_m):
+            status_msg = f"Auto-lowered resolution to {int(capped)} cells/m for speed."
+            cells_per_m = int(capped)
+
+        start_m: Optional[Point] = None
+        if start_px and point_in_lawn(start_px):
+            sx, sy = start_px
+            ox, oy = origin_px
+            start_m = ((sx - ox) * scale_m_per_px, (sy - oy) * scale_m_per_px)
+        elif start_px:
+            status_msg = "Start point not inside lawn; using auto start."
+
+        mode = "planning"
+        paused = False
+        plan = None
+        job.start(
+            poly_m,
+            float(cells_per_m),
+            blade_w_m,
+            ANGLE_STEPS[angle_step_idx],
+            compute_best_plan,
+            start_point=start_m,
+            obstacles=obstacles_m,
+        )
+
     running = True
     while running:
         clock.tick(config.FPS)
@@ -155,41 +194,8 @@ def main():
                                 status_msg = f"Saved obstacle #{len(obstacles_px)}."
                             else:
                                 status_msg = "Need at least 3 points to save obstacle."
-                        elif draw_mode == "boundary":
-                            if len(poly_px) >= 3:
-                                obstacles_all_px = list(obstacles_px)
-                                if len(active_obstacle_px) >= 3:
-                                    obstacles_all_px.append(list(active_obstacle_px))
-
-                                poly_m = poly_px_to_m(poly_px, scale_m_per_px, origin_px)
-                                obstacles_m = [poly_px_to_m(ob, scale_m_per_px, origin_px) for ob in obstacles_all_px]
-                                capped = maybe_cap_resolution(poly_m, float(cells_per_m), blade_w_m, config.MAX_GRID_CELLS)
-                                if capped != float(cells_per_m):
-                                    status_msg = f"Auto-lowered resolution to {int(capped)} cells/m for speed."
-                                    cells_per_m = int(capped)
-
-                                start_m: Optional[Point] = None
-                                if start_px and point_in_lawn(start_px):
-                                    sx, sy = start_px
-                                    ox, oy = origin_px
-                                    start_m = ((sx - ox) * scale_m_per_px, (sy - oy) * scale_m_per_px)
-                                elif start_px:
-                                    status_msg = "Start point not inside lawn; using auto start."
-
-                                mode = "planning"
-                                paused = False
-                                plan = None
-                                job.start(
-                                    poly_m,
-                                    float(cells_per_m),
-                                    blade_w_m,
-                                    ANGLE_STEPS[angle_step_idx],
-                                    compute_best_plan,
-                                    start_point=start_m,
-                                    obstacles=obstacles_m,
-                                )
-                            else:
-                                status_msg = "Need at least 3 points."
+                        else:
+                            trigger_planning()
                 elif mode == "plan":
                     if ev.key == pygame.K_SPACE:
                         paused = not paused
@@ -223,7 +229,8 @@ def main():
                     elif draw_mode == "start":
                         if point_in_lawn(ev.pos):
                             start_px = ev.pos
-                            status_msg = f"Start set at {ev.pos}"
+                            draw_mode = "boundary"
+                            status_msg = f"Start set at {ev.pos}. Press ENTER to plan."
                         else:
                             status_msg = "Start must be inside lawn and outside obstacles."
 
