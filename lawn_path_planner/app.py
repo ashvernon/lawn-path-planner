@@ -23,9 +23,9 @@ def main():
     screen = pygame.display.set_mode((config.WIN_W, config.WIN_H))
     pygame.display.set_caption("Lawn Path Planner MVP v3.1")
     clock = pygame.time.Clock()
-    font_body = pygame.font.SysFont("consolas", 16)
-    font_title = pygame.font.SysFont("consolas", 19)
-    font_mono = pygame.font.SysFont("consolas", 16)
+    font_body = pygame.font.SysFont("consolas", 14)
+    font_title = pygame.font.SysFont("consolas", 17)
+    font_mono = pygame.font.SysFont("consolas", 14)
     fonts = {"body": font_body, "title": font_title, "mono": font_mono}
 
     hud_rect, grid_rect = layout_rects()
