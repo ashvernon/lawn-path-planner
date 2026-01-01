@@ -42,6 +42,9 @@ def main():
     mower_speed_mps = config.INITIAL_MOWER_SPEED
 
     show_lanes = config.DEFAULT_SHOW_LANES
+    show_heatmap = False
+    heatmap_modes = ["visits", "overlap", "log"]
+    heatmap_mode_idx = 0
     draw_mode = "boundary"
     start_px: Optional[Tuple[int, int]] = None
     turn_penalties_on = TURN_PENALTIES_ENABLED
@@ -206,6 +209,17 @@ def main():
                 elif ev.key == pygame.K_l:
                     show_lanes = not show_lanes
 
+                elif ev.key == pygame.K_h:
+                    if ev.mod & pygame.KMOD_SHIFT:
+                        heatmap_mode_idx = (heatmap_mode_idx + 1) % len(heatmap_modes)
+                        show_heatmap = True
+                        status_msg = (
+                            f"Heatmap mode: {heatmap_modes[heatmap_mode_idx].replace('_', ' ').title()}"
+                        )
+                    else:
+                        show_heatmap = not show_heatmap
+                        status_msg = f"Heatmap {'ON' if show_heatmap else 'OFF'}"
+
                 elif ev.key == pygame.K_t:
                     turn_penalties_on = not turn_penalties_on
                     status_msg = f"Turn penalties {'ON' if turn_penalties_on else 'OFF'}"
@@ -244,6 +258,7 @@ def main():
                         shape_features = None
                         last_poly_m = None
                         last_obstacles_m = None
+                        show_heatmap = False
                         status_msg = "Reset lawn, obstacles, and start."
                         last_added = None
                         last_obstacle_added = None
@@ -273,6 +288,7 @@ def main():
                         start_px = None
                         plan = None
                         paused = False
+                        show_heatmap = False
                         status_msg = "Redraw lawn."
                         last_added = None
                         last_obstacle_added = None
@@ -337,6 +353,7 @@ def main():
                     paused = True
                     break
                 x, y = plan.path[plan.path_i]
+                plan.visit_counts[y, x] += 1
                 plan.visited[y, x] = 1
                 plan.path_i += 1
 
@@ -385,6 +402,8 @@ def main():
                 font_body,
                 plan,
                 show_lanes,
+                show_heatmap,
+                heatmap_modes[heatmap_mode_idx],
                 mower_speed_mps,
                 paused,
                 anim_speed,
@@ -416,6 +435,8 @@ def main():
             "plan_metrics": plan_metrics,
             "scale_m_per_px": scale_m_per_px,
             "show_recommendations": show_recommendations,
+            "show_heatmap": show_heatmap,
+            "heatmap_mode": heatmap_modes[heatmap_mode_idx],
         }
 
         draw_hud_panel(screen, fonts, hud_rect, hud_info)

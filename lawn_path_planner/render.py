@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import math
 from typing import Iterable, Tuple
+
+import numpy as np
 
 import pygame
 
@@ -118,11 +121,55 @@ def fit_grid_to_rect(grid_w: int, grid_h: int, grid_rect: pygame.Rect) -> tuple[
     return cell_px, ox, oy
 
 
+def draw_heatmap(
+    screen: pygame.Surface,
+    grid: np.ndarray,
+    visit_counts: np.ndarray,
+    cell_px: int,
+    origin: tuple[int, int],
+    mode: str,
+):
+    vmax = int(visit_counts.max())
+    if vmax <= 0:
+        return
+
+    height, width = visit_counts.shape
+    overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+    ox, oy = origin
+
+    for y in range(height):
+        for x in range(width):
+            if grid[y, x] == 0:
+                continue
+            visits = int(visit_counts[y, x])
+            if visits <= 0:
+                continue
+            if mode == "overlap" and visits < 2:
+                continue
+
+            if mode == "log":
+                norm = math.log1p(visits) / math.log1p(vmax)
+            elif mode == "overlap":
+                denom = max(1, vmax - 1)
+                norm = (visits - 1) / denom
+            else:
+                norm = visits / vmax
+
+            alpha = int(40 + norm * 180)
+            color = (255, 170, 60, max(0, min(255, alpha)))
+            rect = pygame.Rect(ox + x * cell_px, oy + y * cell_px, cell_px - 1, cell_px - 1)
+            pygame.draw.rect(overlay, color, rect)
+
+    screen.blit(overlay, (0, 0))
+
+
 def draw_plan(
     screen: pygame.Surface,
     font: pygame.font.Font,
     plan: PlanState,
     show_lanes: bool,
+    show_heatmap: bool,
+    heatmap_mode: str,
     mower_speed_mps: float,
     paused: bool,
     anim_speed: int,
@@ -147,6 +194,9 @@ def draw_plan(
                 pygame.draw.rect(screen, COL_BLOCK, rect)
             else:
                 pygame.draw.rect(screen, COL_MOWN if plan.visited[y, x] else COL_GRASS, rect)
+
+    if show_heatmap:
+        draw_heatmap(screen, grid, plan.visit_counts, cell_px, (ox, oy), heatmap_mode)
 
     if show_lanes:
         thickness = max(2, int(plan.sweep_step_cells * cell_px * 0.9))
@@ -264,6 +314,14 @@ def draw_hud_panel(screen: pygame.Surface, fonts: dict[str, pygame.font.Font], h
             "mono",
         ),
         (
+            "Heatmap: {heatmap} (H toggle / Shift+H mode {mode})".format(
+                heatmap="ON" if info.get("show_heatmap") else "OFF",
+                mode=info.get("heatmap_mode", "visits").upper(),
+            ),
+            COL_DIM,
+            "body",
+        ),
+        (
             "Recommendations: {} (M toggle)".format(
                 "ON" if info.get("show_recommendations", True) else "OFF"
             ),
@@ -363,6 +421,7 @@ def draw_hud_panel(screen: pygame.Surface, fonts: dict[str, pygame.font.Font], h
         controls_lines.append(("R to reset, P to add point at cursor", COL_DIM, "body"))
     elif info.get("mode") == "plan":
         controls_lines.append(("SPACE pause/resume | +/- animation speed | R redraw", COL_DIM, "body"))
+        controls_lines.append(("H heatmap overlay | Shift+H cycle mode | L lanes toggle", COL_DIM, "body"))
     elif info.get("planning"):
         controls_lines.append(("Planning… lower resolution with , or change angle with A if slow", COL_WARN, "body"))
     y = draw_section(screen, fonts, "Controls", controls_lines, (x, y), max_width)

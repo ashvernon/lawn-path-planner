@@ -92,6 +92,7 @@ python lawn_carer3.1.py
 - **+ / -:** change animation speed
 - **T:** toggle turn penalties (compare base vs turn-adjusted time)
 - **L:** toggle lane visualisation (**OFF by default**)
+- **H:** toggle visit heatmap overlay (Shift+H cycles modes)
 - **M:** toggle mower recommendation panel
 - **F1–F5 (after planning):** cycle recommendation prefs (budget, effort, noise, storage, terrain)
 

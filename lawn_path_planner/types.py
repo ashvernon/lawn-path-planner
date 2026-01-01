@@ -39,12 +39,15 @@ class PlanState:
     lanes: List[Tuple[Cell, Cell]]
     path_i: int = 0
     visited: Optional[np.ndarray] = None
+    visit_counts: Optional[np.ndarray] = None
 
     def __post_init__(self):
         self.visited = np.zeros_like(self.grid, dtype=np.uint8)
+        self.visit_counts = np.zeros_like(self.grid, dtype=np.int32)
         sx, sy = self.start
         if self.grid[sy, sx] == 1:
             self.visited[sy, sx] = 1
+            self.visit_counts[sy, sx] = 1
 
     @classmethod
     def from_result(cls, result: PlanResult) -> "PlanState":
