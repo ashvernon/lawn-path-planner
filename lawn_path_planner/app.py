@@ -8,6 +8,7 @@ from . import config
 from .config import ANGLE_STEPS, TURN_PENALTIES_ENABLED, TURN_PENALTY_180_S, TURN_PENALTY_90_S
 from .geometry import point_in_poly
 from .planning import compute_best_plan, maybe_cap_resolution, next_angle_step_idx
+from .recommendation import compute_shape_features
 from .render import draw_plan, draw_text
 from .types import PlanState, PlannerJob, Point
 
@@ -39,6 +40,7 @@ def main():
     draw_mode = "boundary"
     start_px: Optional[Tuple[int, int]] = None
     turn_penalties_on = TURN_PENALTIES_ENABLED
+    show_recommendations = True
 
     plan: Optional[PlanState] = None
     paused = False
@@ -46,11 +48,30 @@ def main():
     mode = "draw"
     status_msg = ""
 
+    mower_prefs = {
+        "budget": "Medium",
+        "effort": "Medium",
+        "noise": "Medium",
+        "storage": "Normal",
+        "terrain": "Flat",
+    }
+
     job = PlannerJob()
 
     left_down = False
     last_added: Optional[Tuple[int, int]] = None
     last_obstacle_added: Optional[Tuple[int, int]] = None
+    last_poly_m: Optional[List[Point]] = None
+    last_obstacles_m: Optional[List[List[Point]]] = None
+    shape_features: Optional[dict] = None
+
+    pref_options = {
+        "budget": ["Low", "Medium", "High"],
+        "effort": ["Low", "Medium", "High"],
+        "noise": ["Low", "Medium", "High"],
+        "storage": ["Small", "Normal"],
+        "terrain": ["Flat", "Some slope", "Steep"],
+    }
 
     def add_point(pt: Tuple[int, int], why: str):
         nonlocal status_msg, last_added
@@ -63,6 +84,14 @@ def main():
         active_obstacle_px.append(pt)
         last_obstacle_added = pt
         status_msg = f"Added obstacle point {pt} ({why}). Points: {len(active_obstacle_px)}"
+
+    def cycle_pref(key: str):
+        nonlocal status_msg
+        options = pref_options[key]
+        cur = mower_prefs[key]
+        idx = (options.index(cur) + 1) % len(options)
+        mower_prefs[key] = options[idx]
+        status_msg = f"{key.title()} set to {options[idx]}"
 
     def point_in_lawn(px: Tuple[int, int]) -> bool:
         if len(poly_px) < 3:
@@ -89,6 +118,10 @@ def main():
 
         poly_m = poly_px_to_m(poly_px, scale_m_per_px, origin_px)
         obstacles_m = [poly_px_to_m(ob, scale_m_per_px, origin_px) for ob in obstacles_all_px]
+        last_poly_m = poly_m
+        last_obstacles_m = obstacles_m
+        shape_features = compute_shape_features(poly_m, obstacles_m)
+
         capped = maybe_cap_resolution(poly_m, float(cells_per_m), blade_w_m, config.MAX_GRID_CELLS)
         if capped != float(cells_per_m):
             status_msg = f"Auto-lowered resolution to {int(capped)} cells/m for speed."
@@ -127,6 +160,21 @@ def main():
             elif ev.type == pygame.KEYDOWN:
                 if ev.key == pygame.K_ESCAPE:
                     running = False
+
+                if ev.key == pygame.K_m:
+                    show_recommendations = not show_recommendations
+                    status_msg = f"Recommendations {'shown' if show_recommendations else 'hidden'}"
+
+                if ev.key == pygame.K_F1:
+                    cycle_pref("budget")
+                elif ev.key == pygame.K_F2:
+                    cycle_pref("effort")
+                elif ev.key == pygame.K_F3:
+                    cycle_pref("noise")
+                elif ev.key == pygame.K_F4:
+                    cycle_pref("storage")
+                elif ev.key == pygame.K_F5:
+                    cycle_pref("terrain")
 
                 if ev.key == pygame.K_LEFTBRACKET:
                     blade_w_m = max(0.05, blade_w_m - 0.05)
@@ -182,6 +230,9 @@ def main():
                         obstacles_px.clear()
                         active_obstacle_px.clear()
                         start_px = None
+                        shape_features = None
+                        last_poly_m = None
+                        last_obstacles_m = None
                         status_msg = "Reset lawn, obstacles, and start."
                         last_added = None
                         last_obstacle_added = None
@@ -214,6 +265,9 @@ def main():
                         status_msg = "Redraw lawn."
                         last_added = None
                         last_obstacle_added = None
+                        shape_features = None
+                        last_poly_m = None
+                        last_obstacles_m = None
 
             elif ev.type == pygame.MOUSEBUTTONDOWN and mode == "draw":
                 if ev.button == 1:
@@ -374,6 +428,9 @@ def main():
                 turn_penalties_on,
                 TURN_PENALTY_90_S,
                 TURN_PENALTY_180_S,
+                shape_features,
+                mower_prefs,
+                show_recommendations,
             )
 
         pygame.display.flip()

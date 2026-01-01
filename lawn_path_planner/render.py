@@ -14,7 +14,8 @@ from .config import (
     WIN_H,
     WIN_W,
 )
-from .metrics import estimate_coverage, estimate_distance_m, estimate_overlap_inefficiency, estimate_time_min
+from .metrics import estimate_coverage
+from .recommendation import Recommendation, compute_path_complexity_metrics, recommend_mower
 from .types import PlanState
 
 
@@ -44,6 +45,9 @@ def draw_plan(
     turn_penalties_on: bool,
     turn_penalty_90_s: float,
     turn_penalty_180_s: float,
+    shape_features: dict | None = None,
+    mower_prefs: dict | None = None,
+    show_recommendations: bool = True,
 ):
     grid = plan.grid
     height, width = grid.shape
@@ -82,18 +86,15 @@ def draw_plan(
     pygame.draw.circle(screen, COL_MOWER, center, max(3, cell_px // 3))
 
     free, covered, coverage = estimate_coverage(plan)
-    travel_m = estimate_distance_m(plan)
-    est_time_min = estimate_time_min(
-        travel_m,
+    path_metrics = compute_path_complexity_metrics(
+        plan,
         mower_speed_mps,
-        plan.turns,
-        plan.u_turns,
         turn_penalty_90_s,
         turn_penalty_180_s,
         turn_penalties_on,
     )
-    ineff_pct = estimate_overlap_inefficiency(plan)
-    adjusted_time_min = est_time_min * (1 + ineff_pct / 100.0)
+    ineff_pct = path_metrics["inefficiency_pct"]
+    decision_time_min = path_metrics["decision_time_min"]
 
     draw_text(
         screen,
@@ -109,7 +110,11 @@ def draw_plan(
         font,
         20,
         154,
-        f"Distance (approx): {travel_m:.1f} m | Est time @ {mower_speed_mps:.1f} m/s: {est_time_min:.1f} min",
+        "Distance: {:.1f} m | Base time (no turns): {:.1f} min | Turn-adjusted: {:.1f} min".format(
+            path_metrics["distance_m"],
+            path_metrics["base_time_min"],
+            path_metrics["turn_time_min"],
+        ),
         COL_DIM,
     )
     draw_text(
@@ -117,7 +122,12 @@ def draw_plan(
         font,
         20,
         176,
-        f"Overlap/inefficiency est: {ineff_pct:.1f}% | Adjusted time: {adjusted_time_min:.1f} min",
+        "Overlap est: {:.1f}% | Decision time (turn+overlap): {:.1f} min | Time ({}) toggle: {:.1f} min".format(
+            ineff_pct,
+            decision_time_min,
+            "with" if turn_penalties_on else "no",
+            path_metrics["time_with_toggle_min"],
+        ),
         COL_DIM,
     )
     draw_text(
@@ -125,12 +135,107 @@ def draw_plan(
         font,
         20,
         198,
-        "Steps: {} | Turn penalties: {} (T toggle) | Turns: {} ({} U-turns) | Score: {:.1f}  (SPACE pause, +/- anim speed, R redraw)".format(
+        "Steps: {} | Turn density: {:.1f}/100m | Turn penalties: {} (T toggle) | Turns: {} ({} U-turns) | Score: {:.1f}  (SPACE pause, +/- anim speed, R redraw)".format(
             plan.steps,
+            path_metrics["turn_density_per_100m"],
             "ON" if turn_penalties_on else "OFF",
             plan.turns,
             plan.u_turns,
             plan.score,
+        ),
+        COL_DIM,
+    )
+
+    if show_recommendations and shape_features:
+        combined_features = {**shape_features, **path_metrics}
+        recs = recommend_mower(combined_features, mower_prefs)
+        draw_recommendation_panel(
+            screen,
+            font,
+            recs,
+            path_metrics,
+            shape_features,
+            mower_prefs or {},
+            decision_time_min,
+            mower_speed_mps,
+        )
+
+
+def draw_recommendation_panel(
+    screen,
+    font,
+    recs: list[Recommendation],
+    path_metrics: dict,
+    shape_features: dict,
+    prefs: dict,
+    decision_time_min: float,
+    mower_speed_mps: float,
+):
+    panel_x = WIN_W - 420
+    panel_y = 20
+    panel_w = 400
+    panel_h = 250
+
+    pygame.draw.rect(screen, (36, 36, 42), pygame.Rect(panel_x - 8, panel_y - 8, panel_w + 16, panel_h + 16), border_radius=8)
+    pygame.draw.rect(screen, (52, 52, 60), pygame.Rect(panel_x - 4, panel_y - 4, panel_w + 8, panel_h + 8), border_radius=8)
+
+    draw_text(screen, font, panel_x, panel_y, "Mower recommendation (M toggle)")
+
+    assumptions = f"Decision time uses turn penalties + overlap @ {mower_speed_mps:.1f} m/s"
+    draw_text(screen, font, panel_x, panel_y + 18, assumptions, COL_DIM)
+
+    draw_text(
+        screen,
+        font,
+        panel_x,
+        panel_y + 38,
+        "Prefs F1 budget/F2 effort/F3 noise/F4 storage/F5 terrain:",
+        COL_DIM,
+    )
+    prefs_line = "Budget: {} | Effort: {} | Noise: {} | Storage: {} | Terrain: {}".format(
+        prefs.get("budget", "Medium"),
+        prefs.get("effort", "Medium"),
+        prefs.get("noise", "Medium"),
+        prefs.get("storage", "Normal"),
+        prefs.get("terrain", "Flat"),
+    )
+    draw_text(screen, font, panel_x, panel_y + 58, prefs_line, COL_DIM)
+
+    reasons_y = panel_y + 82
+    for idx, rec in enumerate(recs[:3]):
+        header = "#{} {} (score {:.1f})".format(idx + 1, rec.category, rec.score)
+        draw_text(screen, font, panel_x, reasons_y, header)
+        reasons_y += 18
+        for reason in rec.reasons[:3]:
+            draw_text(screen, font, panel_x + 12, reasons_y, f"- {reason}", COL_DIM)
+            reasons_y += 18
+        if rec.warnings:
+            draw_text(screen, font, panel_x + 12, reasons_y, f"! {rec.warnings[0]}", COL_WARN)
+            reasons_y += 18
+
+    summary_y = panel_y + panel_h - 52
+    draw_text(
+        screen,
+        font,
+        panel_x,
+        summary_y,
+        "Area: {:.0f} m² | Obstacles: {} ({:.1f}%) | Turn density: {:.1f}/100m".format(
+            shape_features.get("area_m2", 0.0),
+            shape_features.get("obstacle_count", 0),
+            shape_features.get("obstacle_fraction_pct", 0.0),
+            path_metrics.get("turn_density_per_100m", 0.0),
+        ),
+        COL_DIM,
+    )
+    draw_text(
+        screen,
+        font,
+        panel_x,
+        summary_y + 18,
+        "Decision time: {:.1f} min | Base time: {:.1f} min | Overlap: {:.1f}%".format(
+            decision_time_min,
+            path_metrics.get("base_time_min", 0.0),
+            path_metrics.get("inefficiency_pct", 0.0),
         ),
         COL_DIM,
     )

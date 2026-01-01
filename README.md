@@ -13,6 +13,7 @@ This project explores **coverage path planning (CPP)** applied to residential la
 - Automatically selects an efficient sweep orientation
 - Visualises mowing lanes (planned stripes), traversal path, and coverage progress
 - Estimates total mowing distance and time
+- Ranks mower categories (push, self-propelled, battery, robotic, ride-on) with transparent rationale
 - Runs fully locally (no GPS, no cloud)
 
 ---
@@ -84,6 +85,8 @@ python lawn_carer3.1.py
 - SPACE: pause / resume animation
 - + / -: change animation speed
 - R: redraw lawn
+- M: toggle mower recommendation panel
+- F1–F5 (after planning): cycle recommendation prefs (budget, effort, noise, storage, terrain)
 
 ### Parameters
 - [ / ]: decrease / increase blade width (m)
@@ -100,16 +103,18 @@ python lawn_carer3.1.py
 - Approximate total travel distance (meters)
 - Estimated mowing time (distance ÷ mower speed)
 - Turn count and planning score
+- Turn-adjusted + overlap-adjusted decision time (for recommendations)
+- Mower recommendation with top reasons and warnings
 
-Note: turn time is not yet included in the time estimate.
+Turn penalties are included in the decision time; toggle T in the app to compare.
 
 ---
 
 ## Limitations (current MVP)
 
 - Flat terrain only
-- No obstacles yet (trees, garden beds)
-- Turn time not modelled
+- Obstacle handling is basic (polygon holes only)
+- Turn and overlap costs are simple heuristics
 - Grid approximation (not continuous geometry)
 
 ---
