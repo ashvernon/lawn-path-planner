@@ -2,8 +2,19 @@ from __future__ import annotations
 
 import pygame
 
-from .config import COL_BLOCK, COL_DIM, COL_GRASS, COL_LANE, COL_MOWER, COL_MOWN, COL_PATH, COL_TEXT, WIN_H, WIN_W
-from .metrics import estimate_coverage, estimate_distance_m, estimate_time_min
+from .config import (
+    COL_BLOCK,
+    COL_DIM,
+    COL_GRASS,
+    COL_LANE,
+    COL_MOWER,
+    COL_MOWN,
+    COL_PATH,
+    COL_TEXT,
+    WIN_H,
+    WIN_W,
+)
+from .metrics import estimate_coverage, estimate_distance_m, estimate_overlap_inefficiency, estimate_time_min
 from .types import PlanState
 
 
@@ -22,7 +33,18 @@ def fit_grid_to_window(grid_w: int, grid_h: int) -> tuple[int, int, int]:
     return cell_px, ox, oy
 
 
-def draw_plan(screen, font, plan: PlanState, show_lanes: bool, mower_speed_mps: float, paused: bool, anim_speed: int):
+def draw_plan(
+    screen,
+    font,
+    plan: PlanState,
+    show_lanes: bool,
+    mower_speed_mps: float,
+    paused: bool,
+    anim_speed: int,
+    turn_penalties_on: bool,
+    turn_penalty_90_s: float,
+    turn_penalty_180_s: float,
+):
     grid = plan.grid
     height, width = grid.shape
     cell_px, ox, oy = fit_grid_to_window(width, height)
@@ -61,7 +83,17 @@ def draw_plan(screen, font, plan: PlanState, show_lanes: bool, mower_speed_mps: 
 
     free, covered, coverage = estimate_coverage(plan)
     travel_m = estimate_distance_m(plan)
-    est_time_min = estimate_time_min(travel_m, mower_speed_mps)
+    est_time_min = estimate_time_min(
+        travel_m,
+        mower_speed_mps,
+        plan.turns,
+        plan.u_turns,
+        turn_penalty_90_s,
+        turn_penalty_180_s,
+        turn_penalties_on,
+    )
+    ineff_pct = estimate_overlap_inefficiency(plan)
+    adjusted_time_min = est_time_min * (1 + ineff_pct / 100.0)
 
     draw_text(
         screen,
@@ -85,6 +117,20 @@ def draw_plan(screen, font, plan: PlanState, show_lanes: bool, mower_speed_mps: 
         font,
         20,
         176,
-        f"Steps: {plan.steps} | Turns: {plan.turns} | Score: {plan.score:.1f}  (SPACE pause, +/- anim speed, R redraw)",
+        f"Overlap/inefficiency est: {ineff_pct:.1f}% | Adjusted time: {adjusted_time_min:.1f} min",
+        COL_DIM,
+    )
+    draw_text(
+        screen,
+        font,
+        20,
+        198,
+        "Steps: {} | Turn penalties: {} (T toggle) | Turns: {} ({} U-turns) | Score: {:.1f}  (SPACE pause, +/- anim speed, R redraw)".format(
+            plan.steps,
+            "ON" if turn_penalties_on else "OFF",
+            plan.turns,
+            plan.u_turns,
+            plan.score,
+        ),
         COL_DIM,
     )

@@ -46,7 +46,12 @@ def first_free_cell(grid: np.ndarray) -> Cell:
     return (int(xs[0]), int(ys[0]))
 
 
-def rasterize_polygon(poly_m: List[Point], cells_per_meter: float, blade_w_m: float) -> tuple[np.ndarray, float, int]:
+def rasterize_polygon(
+    poly_m: List[Point],
+    cells_per_meter: float,
+    blade_w_m: float,
+    obstacles: Optional[List[List[Point]]] = None,
+) -> tuple[np.ndarray, float, int, float, float]:
     cell_size_m = 1.0 / cells_per_meter
     minx, miny, maxx, maxy = poly_bounds(poly_m)
     pad = max(blade_w_m, cell_size_m) * 1.5
@@ -59,12 +64,37 @@ def rasterize_polygon(poly_m: List[Point], cells_per_meter: float, blade_w_m: fl
     height = int(math.ceil((maxy - miny) / cell_size_m))
     grid = np.zeros((height, width), dtype=np.uint8)
 
+    obstacles = obstacles or []
     for gy in range(height):
         cy = miny + (gy + 0.5) * cell_size_m
         for gx in range(width):
             cx = minx + (gx + 0.5) * cell_size_m
-            if point_in_poly(cx, cy, poly_m):
+            inside_outer = point_in_poly(cx, cy, poly_m)
+            inside_hole = any(point_in_poly(cx, cy, hole) for hole in obstacles)
+            if inside_outer and not inside_hole:
                 grid[gy, gx] = 1
 
     sweep_step_cells = max(1, int(round(blade_w_m / cell_size_m)))
-    return grid, cell_size_m, sweep_step_cells
+    return grid, cell_size_m, sweep_step_cells, minx, miny
+
+
+def nearest_free_cell(grid: np.ndarray, start: Cell) -> Optional[Cell]:
+    height, width = grid.shape
+    sx, sy = start
+    if not (0 <= sx < width and 0 <= sy < height):
+        return first_free_cell(grid)
+    if grid[sy, sx] == 1:
+        return start
+
+    queue = deque([(sx, sy)])
+    seen = {start}
+    while queue:
+        x, y = queue.popleft()
+        for dx, dy in DIRS4:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < width and 0 <= ny < height and (nx, ny) not in seen:
+                if grid[ny, nx] == 1:
+                    return (nx, ny)
+                seen.add((nx, ny))
+                queue.append((nx, ny))
+    return None
