@@ -9,10 +9,11 @@ This project explores **coverage path planning (CPP)** applied to residential la
 ## Features
 
 - Draw an arbitrary lawn boundary interactively
-- Set mower blade width and planning resolution
+- Optional obstacle polygons (“holes”) and selectable start point
+- Set mower blade width, planning resolution, and sweep angle step
 - Automatically selects an efficient sweep orientation
-- Visualises mowing lanes (planned stripes), traversal path, and coverage progress
-- Estimates total mowing distance and time
+- Visualises traversal path, coverage progress, and optional mowing lanes (planned stripes)
+- Estimates mowing distance and multiple time estimates (base vs turn/overlap-adjusted)
 - Ranks mower categories (push, self-propelled, battery, robotic, ride-on) with transparent rationale
 - Runs fully locally (no GPS, no cloud)
 
@@ -24,7 +25,7 @@ This project explores **coverage path planning (CPP)** applied to residential la
 
 ![Drawing lawn shape](screen1.png)
 
-**Planned mowing lanes and estimated time**
+**Planned path, obstacles, and time metrics**
 
 ![Planned mowing lanes](screen2.png)
 
@@ -32,13 +33,13 @@ This project explores **coverage path planning (CPP)** applied to residential la
 
 ## How it works
 
-1. Draw a lawn polygon
-2. Rasterise the polygon to a grid
+1. Draw a lawn polygon (and optional obstacle polygons)
+2. Rasterise the geometry to a grid
 3. Evaluate multiple sweep angles
 4. Score each candidate by:
    - Path length
    - Turn count (penalised)
-5. Render the best plan
+5. Render the best plan and compute metrics
 
 ---
 
@@ -72,28 +73,33 @@ python lawn_carer3.1.py
 
 ## Controls
 
-### Drawing mode
-- Left click (release): add point
-- Hold left mouse + drag: draw shape quickly
-- P: add point at cursor
-- BACKSPACE: undo last point
-- ENTER: compute mowing plan
-- R: reset shape
-- ESC: quit
+### Modes (drawing inputs)
+- **B:** boundary draw mode
+- **O:** obstacle draw mode (adds “holes” inside lawn)
+- **S:** start-point mode (click to set start)
+- **ENTER:** finalise current polygon / run planning
+- **BACKSPACE:** undo last point
+- **R:** reset and redraw
+- **ESC:** quit
+
+### Drawing
+- **Left click (release):** add point  
+- **Hold left mouse + drag:** draw shape quickly  
+- **P:** add point at cursor  
 
 ### Planning / playback
-- SPACE: pause / resume animation
-- + / -: change animation speed
-- R: redraw lawn
-- M: toggle mower recommendation panel
-- F1–F5 (after planning): cycle recommendation prefs (budget, effort, noise, storage, terrain)
+- **SPACE:** pause / resume animation
+- **+ / -:** change animation speed
+- **T:** toggle turn penalties (compare base vs turn-adjusted time)
+- **L:** toggle lane visualisation (**OFF by default**)
+- **M:** toggle mower recommendation panel
+- **F1–F5 (after planning):** cycle recommendation prefs (budget, effort, noise, storage, terrain)
 
 ### Parameters
-- [ / ]: decrease / increase blade width (m)
-- , / .: decrease / increase grid resolution
-- A: cycle sweep angle resolution
-- 1 / 2: decrease / increase mower speed (m/s)
-- L: toggle lane visualisation
+- **[ / ]:** decrease / increase blade width (m)
+- **, / .:** decrease / increase grid resolution
+- **A:** cycle sweep angle resolution
+- **1 / 2:** decrease / increase mower speed (m/s)
 
 ---
 
@@ -101,12 +107,12 @@ python lawn_carer3.1.py
 
 - Coverage percentage
 - Approximate total travel distance (meters)
-- Estimated mowing time (distance ÷ mower speed)
-- Turn count and planning score
-- Turn-adjusted + overlap-adjusted decision time (for recommendations)
+- Base mowing time (distance ÷ mower speed)
+- Turn count and turn density (incl. U-turns if shown)
+- Turn-adjusted and overlap-adjusted “decision time” (used for recommendations)
 - Mower recommendation with top reasons and warnings
 
-Turn penalties are included in the decision time; toggle T in the app to compare.
+Turn penalties are included in the decision time; toggle **T** in the app to compare.
 
 ---
 
@@ -122,4 +128,3 @@ Turn penalties are included in the decision time; toggle T in the app to compare
 ## Status
 
 Experimental MVP for exploration and prototyping.
-```
