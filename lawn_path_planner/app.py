@@ -117,7 +117,7 @@ def main():
         return True
 
     def trigger_planning():
-        nonlocal mode, paused, plan, status_msg, cells_per_m
+        nonlocal mode, paused, plan, status_msg, cells_per_m, shape_features, last_poly_m, last_obstacles_m
 
         if len(poly_px) < 3:
             status_msg = "Need at least 3 points."
