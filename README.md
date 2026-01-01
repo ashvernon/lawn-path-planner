@@ -1,8 +1,3 @@
-Yep — GitHub is treating your fences weirdly because something in the file is breaking Markdown parsing (most often: a missing closing ``` further down, or smart quotes/odd characters). Easiest fix: use **simple fences (no language tags)** and keep them isolated.
-
-Paste this **entire README** exactly as-is:
-
-```markdown
 # Lawn Path Planner (MVP)
 
 An interactive Python prototype that computes and visualises an efficient mowing path for an arbitrary lawn shape, given mower blade width and basic constraints.
