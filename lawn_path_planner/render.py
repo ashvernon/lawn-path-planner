@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Iterable, Tuple
+
 import pygame
 
 from .config import (
@@ -9,8 +11,18 @@ from .config import (
     COL_LANE,
     COL_MOWER,
     COL_MOWN,
+    COL_PANEL_BG,
+    COL_PANEL_BORDER,
+    COL_PANEL_DARK,
     COL_PATH,
     COL_TEXT,
+    COL_WARN,
+    GRID_PADDING,
+    HUD_GAP,
+    HUD_MARGIN,
+    HUD_PADDING,
+    HUD_PANEL_WIDTH,
+    HUD_SECTION_GAP,
     WIN_H,
     WIN_W,
 )
@@ -23,20 +35,92 @@ def draw_text(screen, font, x, y, text, color=COL_TEXT):
     screen.blit(font.render(text, True, color), (x, y))
 
 
-def fit_grid_to_window(grid_w: int, grid_h: int) -> tuple[int, int, int]:
-    margin_left = 20
-    margin_top = 180
-    max_draw_w = WIN_W - margin_left * 2
-    max_draw_h = WIN_H - margin_top - 30
+def layout_rects() -> tuple[pygame.Rect, pygame.Rect]:
+    hud_rect = pygame.Rect(
+        HUD_MARGIN,
+        HUD_MARGIN,
+        HUD_PANEL_WIDTH,
+        WIN_H - HUD_MARGIN * 2,
+    )
+    grid_rect = pygame.Rect(
+        hud_rect.right + HUD_GAP,
+        HUD_MARGIN,
+        WIN_W - hud_rect.width - HUD_GAP - HUD_MARGIN,
+        WIN_H - HUD_MARGIN * 2,
+    )
+    return hud_rect, grid_rect
+
+
+def draw_panel_background(screen: pygame.Surface, rect: pygame.Rect):
+    pygame.draw.rect(screen, COL_PANEL_DARK, rect.inflate(8, 8), border_radius=10)
+    pygame.draw.rect(screen, COL_PANEL_BORDER, rect.inflate(4, 4), border_radius=10)
+    pygame.draw.rect(screen, COL_PANEL_BG, rect, border_radius=10)
+
+
+def wrap_lines(font: pygame.font.Font, text: str, max_width: int) -> list[str]:
+    wrapped: list[str] = []
+    for paragraph in text.splitlines():
+        if not paragraph:
+            wrapped.append("")
+            continue
+        words = paragraph.split(" ")
+        line = ""
+        for word in words:
+            candidate = f"{line} {word}".strip()
+            if font.size(candidate)[0] <= max_width:
+                line = candidate
+            else:
+                if line:
+                    wrapped.append(line)
+                line = word
+        if line:
+            wrapped.append(line)
+    return wrapped
+
+
+def draw_wrapped(
+    screen: pygame.Surface,
+    font: pygame.font.Font,
+    text: str,
+    color: Tuple[int, int, int],
+    x: int,
+    y: int,
+    max_width: int,
+    line_gap: int = 2,
+) -> int:
+    for line in wrap_lines(font, text, max_width):
+        draw_text(screen, font, x, y, line, color)
+        y += font.get_linesize() + line_gap
+    return y
+
+
+def draw_section(
+    screen: pygame.Surface,
+    fonts: dict[str, pygame.font.Font],
+    title: str,
+    lines: Iterable[tuple[str, Tuple[int, int, int], str]],
+    origin: tuple[int, int],
+    max_width: int,
+) -> int:
+    x, y = origin
+    y = draw_wrapped(screen, fonts["title"], title, COL_TEXT, x, y, max_width, line_gap=4)
+    for text, color, font_key in lines:
+        y = draw_wrapped(screen, fonts[font_key], text, color, x, y, max_width)
+    return y + HUD_SECTION_GAP
+
+
+def fit_grid_to_rect(grid_w: int, grid_h: int, grid_rect: pygame.Rect) -> tuple[int, int, int]:
+    max_draw_w = max(1, grid_rect.w - GRID_PADDING * 2)
+    max_draw_h = max(1, grid_rect.h - GRID_PADDING * 2)
     cell_px = max(3, min(max_draw_w // max(1, grid_w), max_draw_h // max(1, grid_h)))
-    ox = margin_left + (max_draw_w - grid_w * cell_px) // 2
-    oy = margin_top + (max_draw_h - grid_h * cell_px) // 2
+    ox = grid_rect.x + GRID_PADDING + (max_draw_w - grid_w * cell_px) // 2
+    oy = grid_rect.y + GRID_PADDING + (max_draw_h - grid_h * cell_px) // 2
     return cell_px, ox, oy
 
 
 def draw_plan(
-    screen,
-    font,
+    screen: pygame.Surface,
+    font: pygame.font.Font,
     plan: PlanState,
     show_lanes: bool,
     mower_speed_mps: float,
@@ -45,13 +129,16 @@ def draw_plan(
     turn_penalties_on: bool,
     turn_penalty_90_s: float,
     turn_penalty_180_s: float,
-    shape_features: dict | None = None,
-    mower_prefs: dict | None = None,
-    show_recommendations: bool = True,
-):
+    shape_features: dict | None,
+    mower_prefs: dict | None,
+    show_recommendations: bool,
+    grid_rect: pygame.Rect,
+) -> dict:
     grid = plan.grid
     height, width = grid.shape
-    cell_px, ox, oy = fit_grid_to_window(width, height)
+    cell_px, ox, oy = fit_grid_to_rect(width, height, grid_rect)
+
+    pygame.draw.rect(screen, COL_PANEL_DARK, grid_rect, border_radius=8)
 
     for y in range(height):
         for x in range(width):
@@ -75,7 +162,7 @@ def draw_plan(
             x, y = plan.path[step]
             px = ox + x * cell_px + cell_px // 2
             py = oy + y * cell_px + cell_px // 2
-            if 0 <= px < WIN_W and 0 <= py < WIN_H:
+            if grid_rect.collidepoint(px, py):
                 screen.set_at((px, py), COL_PATH)
 
     if plan.path_i == 0:
@@ -93,149 +180,194 @@ def draw_plan(
         turn_penalty_180_s,
         turn_penalties_on,
     )
-    ineff_pct = path_metrics["inefficiency_pct"]
-    decision_time_min = path_metrics["decision_time_min"]
 
-    draw_text(
-        screen,
-        font,
-        20,
-        110,
-        f"Best angle: {plan.deg}° | blade≈{plan.sweep_step_cells} cells | paused={paused} | anim_speed={anim_speed} steps/frame",
-        COL_DIM,
-    )
-    draw_text(screen, font, 20, 132, f"Coverage: {covered}/{free} ({coverage * 100:.1f}%)", COL_DIM)
-    draw_text(
-        screen,
-        font,
-        20,
-        154,
-        "Distance: {:.1f} m | Base time (no turns): {:.1f} min | Turn-adjusted: {:.1f} min".format(
-            path_metrics["distance_m"],
-            path_metrics["base_time_min"],
-            path_metrics["turn_time_min"],
-        ),
-        COL_DIM,
-    )
-    draw_text(
-        screen,
-        font,
-        20,
-        176,
-        "Overlap est: {:.1f}% | Decision time (turn+overlap): {:.1f} min | Time ({}) toggle: {:.1f} min".format(
-            ineff_pct,
-            decision_time_min,
-            "with" if turn_penalties_on else "no",
-            path_metrics["time_with_toggle_min"],
-        ),
-        COL_DIM,
-    )
-    draw_text(
-        screen,
-        font,
-        20,
-        198,
-        "Steps: {} | Turn density: {:.1f}/100m | Turn penalties: {} (T toggle) | Turns: {} ({} U-turns) | Score: {:.1f}  (SPACE pause, +/- anim speed, R redraw)".format(
-            plan.steps,
-            path_metrics["turn_density_per_100m"],
-            "ON" if turn_penalties_on else "OFF",
-            plan.turns,
-            plan.u_turns,
-            plan.score,
-        ),
-        COL_DIM,
-    )
-
+    recommendations: list[Recommendation] = []
     if show_recommendations and shape_features:
         combined_features = {**shape_features, **path_metrics}
-        recs = recommend_mower(combined_features, mower_prefs)
-        draw_recommendation_panel(
-            screen,
-            font,
-            recs,
-            path_metrics,
-            shape_features,
-            mower_prefs or {},
-            decision_time_min,
-            mower_speed_mps,
-        )
+        recommendations = recommend_mower(combined_features, mower_prefs or {})
+
+    return {
+        "free": free,
+        "covered": covered,
+        "coverage": coverage,
+        "path_metrics": path_metrics,
+        "deg": plan.deg,
+        "sweep_step_cells": plan.sweep_step_cells,
+        "steps": plan.steps,
+        "turns": plan.turns,
+        "u_turns": plan.u_turns,
+        "score": plan.score,
+        "recommendations": recommendations,
+    }
 
 
-def draw_recommendation_panel(
-    screen,
-    font,
-    recs: list[Recommendation],
-    path_metrics: dict,
-    shape_features: dict,
-    prefs: dict,
-    decision_time_min: float,
-    mower_speed_mps: float,
-):
-    panel_x = WIN_W - 420
-    panel_y = 20
-    panel_w = 400
-    panel_h = 250
-
-    pygame.draw.rect(screen, (36, 36, 42), pygame.Rect(panel_x - 8, panel_y - 8, panel_w + 16, panel_h + 16), border_radius=8)
-    pygame.draw.rect(screen, (52, 52, 60), pygame.Rect(panel_x - 4, panel_y - 4, panel_w + 8, panel_h + 8), border_radius=8)
-
-    draw_text(screen, font, panel_x, panel_y, "Mower recommendation (M toggle)")
-
-    assumptions = f"Decision time uses turn penalties + overlap @ {mower_speed_mps:.1f} m/s"
-    draw_text(screen, font, panel_x, panel_y + 18, assumptions, COL_DIM)
-
-    draw_text(
-        screen,
-        font,
-        panel_x,
-        panel_y + 38,
-        "Prefs F1 budget/F2 effort/F3 noise/F4 storage/F5 terrain:",
-        COL_DIM,
-    )
-    prefs_line = "Budget: {} | Effort: {} | Noise: {} | Storage: {} | Terrain: {}".format(
-        prefs.get("budget", "Medium"),
-        prefs.get("effort", "Medium"),
-        prefs.get("noise", "Medium"),
-        prefs.get("storage", "Normal"),
-        prefs.get("terrain", "Flat"),
-    )
-    draw_text(screen, font, panel_x, panel_y + 58, prefs_line, COL_DIM)
-
-    reasons_y = panel_y + 82
-    for idx, rec in enumerate(recs[:3]):
-        header = "#{} {} (score {:.1f})".format(idx + 1, rec.category, rec.score)
-        draw_text(screen, font, panel_x, reasons_y, header)
-        reasons_y += 18
-        for reason in rec.reasons[:3]:
-            draw_text(screen, font, panel_x + 12, reasons_y, f"- {reason}", COL_DIM)
-            reasons_y += 18
+def summarize_recommendations(recs: list[Recommendation]) -> list[str]:
+    lines: list[str] = []
+    for idx, rec in enumerate(recs[:2]):
+        header = f"#{idx + 1} {rec.category} (score {rec.score:.1f})"
+        lines.append(header)
+        for reason in rec.reasons[:2]:
+            lines.append(f"- {reason}")
         if rec.warnings:
-            draw_text(screen, font, panel_x + 12, reasons_y, f"! {rec.warnings[0]}", COL_WARN)
-            reasons_y += 18
+            lines.append(f"! {rec.warnings[0]}")
+    return lines
 
-    summary_y = panel_y + panel_h - 52
-    draw_text(
-        screen,
-        font,
-        panel_x,
-        summary_y,
-        "Area: {:.0f} m² | Obstacles: {} ({:.1f}%) | Turn density: {:.1f}/100m".format(
-            shape_features.get("area_m2", 0.0),
-            shape_features.get("obstacle_count", 0),
-            shape_features.get("obstacle_fraction_pct", 0.0),
-            path_metrics.get("turn_density_per_100m", 0.0),
-        ),
-        COL_DIM,
+
+def draw_hud_panel(screen: pygame.Surface, fonts: dict[str, pygame.font.Font], hud_rect: pygame.Rect, info: dict):
+    draw_panel_background(screen, hud_rect)
+    x = hud_rect.x + HUD_PADDING
+    y = hud_rect.y + HUD_PADDING
+    max_width = hud_rect.w - HUD_PADDING * 2
+
+    title = "Lawn Path Planner MVP v3.1"
+    y = draw_wrapped(screen, fonts["title"], title, COL_TEXT, x, y, max_width, line_gap=4)
+
+    status_lines: list[tuple[str, tuple[int, int, int], str]] = []
+    mode_line = f"Mode: {info['mode'].upper()}"
+    if info.get("paused"):
+        mode_line += " (paused)"
+    if info.get("planning"):
+        mode_line += " (planning…)"
+    status_lines.append((mode_line, COL_TEXT, "body"))
+    status_lines.append(
+        (
+            "Draw: {draw_mode} | Obstacles: {obstacles} | Start: {start}".format(
+                draw_mode=info.get("draw_mode", "boundary").upper(),
+                obstacles=info.get("obstacle_count", 0),
+                start="SET" if info.get("start_set") else "AUTO",
+            ),
+            COL_DIM,
+            "body",
+        )
     )
-    draw_text(
-        screen,
-        font,
-        panel_x,
-        summary_y + 18,
-        "Decision time: {:.1f} min | Base time: {:.1f} min | Overlap: {:.1f}%".format(
-            decision_time_min,
-            path_metrics.get("base_time_min", 0.0),
-            path_metrics.get("inefficiency_pct", 0.0),
+    if info.get("status_msg"):
+        status_lines.append((info["status_msg"], COL_WARN, "body"))
+
+    y = draw_section(screen, fonts, "Status", status_lines, (x, y), max_width)
+
+    param_lines = [
+        (
+            "Blade {blade:.2f}m | Resolution {res} cells/m | Angle {angle}°".format(
+                blade=info.get("blade_w_m", 0.0),
+                res=int(info.get("cells_per_m", 0)),
+                angle=info.get("angle_step", 0),
+            ),
+            COL_DIM,
+            "mono",
         ),
-        COL_DIM,
-    )
+        (
+            "Speed {speed:.1f} m/s | Lanes {lanes} (L toggle)".format(
+                speed=info.get("mower_speed_mps", 0.0),
+                lanes="ON" if info.get("show_lanes") else "OFF",
+            ),
+            COL_DIM,
+            "mono",
+        ),
+        (
+            "Recommendations: {} (M toggle)".format(
+                "ON" if info.get("show_recommendations", True) else "OFF"
+            ),
+            COL_DIM,
+            "body",
+        ),
+        (
+            "Turn penalties: {} (T toggle)".format(
+                "ON" if info.get("turn_penalties_on") else "OFF"
+            ),
+            COL_DIM,
+            "body",
+        ),
+        (
+            "Scale: 1 px = {scale:.3f} m (1000px ~ {thousand:.1f} m)".format(
+                scale=info.get("scale_m_per_px", 0.0),
+                thousand=1000 * info.get("scale_m_per_px", 0.0),
+            ),
+            COL_DIM,
+            "body",
+        ),
+    ]
+    y = draw_section(screen, fonts, "Parameters", param_lines, (x, y), max_width)
+
+    metrics = info.get("plan_metrics")
+    metrics_lines: list[tuple[str, tuple[int, int, int], str]] = []
+    if metrics:
+        coverage_pct = metrics.get("coverage", 0.0) * 100
+        metrics_lines.append(
+            (
+                "Coverage: {covered}/{free} ({pct:.1f}%)".format(
+                    covered=metrics.get("covered", 0),
+                    free=metrics.get("free", 0),
+                    pct=coverage_pct,
+                ),
+                COL_TEXT,
+                "mono",
+            )
+        )
+        metrics_lines.append(
+            (
+                "Best angle {deg}° | Blade step ~{sweep} cells | Steps {steps}".format(
+                    deg=metrics.get("deg", 0),
+                    sweep=metrics.get("sweep_step_cells", 0),
+                    steps=metrics.get("steps", 0),
+                ),
+                COL_DIM,
+                "mono",
+            )
+        )
+        pm = metrics.get("path_metrics", {})
+        metrics_lines.append(
+            (
+                "Distance {dist:.1f} m | Base {base:.1f} min | Turn-adjusted {turn:.1f} min".format(
+                    dist=pm.get("distance_m", 0.0),
+                    base=pm.get("base_time_min", 0.0),
+                    turn=pm.get("turn_time_min", 0.0),
+                ),
+                COL_DIM,
+                "mono",
+            )
+        )
+        metrics_lines.append(
+            (
+                "Overlap {overlap:.1f}% | Decision {decision:.1f} min | Time toggle {toggle:.1f} min".format(
+                    overlap=pm.get("inefficiency_pct", 0.0),
+                    decision=pm.get("decision_time_min", 0.0),
+                    toggle=pm.get("time_with_toggle_min", 0.0),
+                ),
+                COL_DIM,
+                "mono",
+            )
+        )
+        metrics_lines.append(
+            (
+                "Turns {turns} ({u_turns} U) | Density {density:.1f}/100m | Score {score:.1f}".format(
+                    turns=metrics.get("turns", 0),
+                    u_turns=metrics.get("u_turns", 0),
+                    density=pm.get("turn_density_per_100m", 0.0),
+                    score=metrics.get("score", 0.0),
+                ),
+                COL_DIM,
+                "mono",
+            )
+        )
+    else:
+        metrics_lines.append(("No plan yet. Press ENTER to compute.", COL_DIM, "body"))
+    y = draw_section(screen, fonts, "Metrics", metrics_lines, (x, y), max_width)
+
+    controls_lines: list[tuple[str, tuple[int, int, int], str]] = []
+    if info.get("mode") == "draw":
+        controls_lines.append(
+            (
+                "Draw: B boundary / O obstacle / S start | click or drag to add points | ENTER to plan", COL_DIM, "body"
+            )
+        )
+        controls_lines.append(("R to reset, P to add point at cursor", COL_DIM, "body"))
+    elif info.get("mode") == "plan":
+        controls_lines.append(("SPACE pause/resume | +/- animation speed | R redraw", COL_DIM, "body"))
+    elif info.get("planning"):
+        controls_lines.append(("Planning… lower resolution with , or change angle with A if slow", COL_WARN, "body"))
+    y = draw_section(screen, fonts, "Controls", controls_lines, (x, y), max_width)
+
+    recs = metrics.get("recommendations") if metrics else []
+    if recs:
+        rec_lines = [(line, COL_DIM if not line.startswith("!") else COL_WARN, "body") for line in summarize_recommendations(recs)]
+        draw_section(screen, fonts, "Recommendations (M toggle)", rec_lines, (x, y), max_width)
