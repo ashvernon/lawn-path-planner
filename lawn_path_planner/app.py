@@ -9,7 +9,7 @@ from .config import ANGLE_STEPS, TURN_PENALTIES_ENABLED, TURN_PENALTY_180_S, TUR
 from .geometry import point_in_poly
 from .planning import compute_best_plan, maybe_cap_resolution, next_angle_step_idx
 from .recommendation import compute_shape_features
-from .render import draw_plan, draw_text
+from .render import draw_hud_panel, draw_panel_background, draw_plan, layout_rects
 from .types import PlanState, PlannerJob, Point
 
 
@@ -23,7 +23,12 @@ def main():
     screen = pygame.display.set_mode((config.WIN_W, config.WIN_H))
     pygame.display.set_caption("Lawn Path Planner MVP v3.1")
     clock = pygame.time.Clock()
-    font = pygame.font.SysFont("consolas", 16)
+    font_body = pygame.font.SysFont("consolas", 16)
+    font_title = pygame.font.SysFont("consolas", 19)
+    font_mono = pygame.font.SysFont("consolas", 16)
+    fonts = {"body": font_body, "title": font_title, "mono": font_mono}
+
+    hud_rect, grid_rect = layout_rects()
 
     poly_px: List[Tuple[int, int]] = []
     obstacles_px: List[List[Tuple[int, int]]] = []
@@ -36,7 +41,7 @@ def main():
     angle_step_idx = config.INITIAL_ANGLE_STEP_IDX
     mower_speed_mps = config.INITIAL_MOWER_SPEED
 
-    show_lanes = True
+    show_lanes = config.DEFAULT_SHOW_LANES
     draw_mode = "boundary"
     start_px: Optional[Tuple[int, int]] = None
     turn_penalties_on = TURN_PENALTIES_ENABLED
@@ -75,12 +80,18 @@ def main():
 
     def add_point(pt: Tuple[int, int], why: str):
         nonlocal status_msg, last_added
+        if not grid_rect.collidepoint(pt):
+            status_msg = "Use the map area (right of HUD) to add points."
+            return
         poly_px.append(pt)
         last_added = pt
         status_msg = f"Added point {pt} ({why}). Total points: {len(poly_px)}"
 
     def add_obstacle_point(pt: Tuple[int, int], why: str):
         nonlocal status_msg, last_obstacle_added
+        if not grid_rect.collidepoint(pt):
+            status_msg = "Use the map area (right of HUD) to add points."
+            return
         active_obstacle_px.append(pt)
         last_obstacle_added = pt
         status_msg = f"Added obstacle point {pt} ({why}). Points: {len(active_obstacle_px)}"
@@ -271,7 +282,9 @@ def main():
 
             elif ev.type == pygame.MOUSEBUTTONDOWN and mode == "draw":
                 if ev.button == 1:
-                    left_down = True
+                    left_down = grid_rect.collidepoint(ev.pos)
+                    if not left_down:
+                        status_msg = "Click inside the map area to draw."
 
             elif ev.type == pygame.MOUSEBUTTONUP and mode == "draw":
                 if ev.button == 1:
@@ -281,7 +294,9 @@ def main():
                     elif draw_mode == "obstacle":
                         add_obstacle_point(ev.pos, "mouse up")
                     elif draw_mode == "start":
-                        if point_in_lawn(ev.pos):
+                        if not grid_rect.collidepoint(ev.pos):
+                            status_msg = "Start must be inside the map area."
+                        elif point_in_lawn(ev.pos):
                             start_px = ev.pos
                             draw_mode = "boundary"
                             status_msg = f"Start set at {ev.pos}. Press ENTER to plan."
@@ -326,57 +341,12 @@ def main():
                 plan.path_i += 1
 
         screen.fill(config.COL_BG)
-
-        draw_text(screen, font, 20, 16, "Lawn Path Planner MVP v3.1")
-        draw_text(
-            screen,
-            font,
-            20,
-            36,
-            f"Blade: {blade_w_m:.2f} m | Resolution: {int(cells_per_m)} cells/m | Angle step: {ANGLE_STEPS[angle_step_idx]}°  ( [ ] blade, , . res, A angle-step )",
-            config.COL_DIM,
-        )
-        draw_text(
-            screen,
-            font,
-            20,
-            56,
-            f"Mower speed: {mower_speed_mps:.1f} m/s  (1/2 adjust) | Lanes: {'ON' if show_lanes else 'OFF'} (L toggle)",
-            config.COL_DIM,
-        )
-
-        draw_text(
-            screen,
-            font,
-            20,
-            76,
-            f"Mode: {draw_mode.upper()} | Obstacles: {len(obstacles_px) + (1 if len(active_obstacle_px) >= 3 else 0)} | Start: {'SET' if start_px else 'AUTO'} | Turn penalties: {'ON' if turn_penalties_on else 'OFF'} (T toggle, B boundary, O obstacle, S start)",
-            config.COL_DIM,
-        )
-
-        if status_msg:
-            draw_text(screen, font, 20, 98, status_msg, config.COL_WARN)
+        plan_metrics = None
 
         if mode == "draw":
+            draw_panel_background(screen, grid_rect)
             pygame.draw.circle(screen, config.COL_CURSOR, (mx, my), 3)
-            draw_text(
-                screen,
-                font,
-                20,
-                110,
-                "Draw: B boundary / O obstacle / S start | click/drag adds points | ENTER plan/save obstacle | R reset",
-                config.COL_DIM,
-            )
             pygame.draw.circle(screen, (255, 120, 120), origin_px, 4)
-            draw_text(screen, font, origin_px[0] + 8, origin_px[1] - 8, "origin", (255, 120, 120))
-            draw_text(
-                screen,
-                font,
-                20,
-                132,
-                f"Scale: 1 px = {scale_m_per_px:.3f} m  (1000px ~ {1000 * scale_m_per_px:.1f}m)",
-                config.COL_DIM,
-            )
 
             if len(poly_px) >= 1:
                 for p in poly_px:
@@ -400,14 +370,7 @@ def main():
                 pygame.draw.circle(screen, config.COL_PATH, start_px, 6, 2)
 
         elif mode == "planning":
-            draw_text(
-                screen,
-                font,
-                20,
-                110,
-                "Planning… Tip: press , to lower resolution or A to increase angle-step if it’s slow.",
-                config.COL_WARN,
-            )
+            draw_panel_background(screen, grid_rect)
             if len(poly_px) >= 2:
                 pygame.draw.lines(screen, config.COL_POLY_EDGE, False, poly_px, 2)
             for obs in obstacles_px:
@@ -417,9 +380,9 @@ def main():
                 pygame.draw.circle(screen, config.COL_PATH, start_px, 6, 2)
 
         elif mode == "plan" and plan is not None:
-            draw_plan(
+            plan_metrics = draw_plan(
                 screen,
-                font,
+                font_body,
                 plan,
                 show_lanes,
                 mower_speed_mps,
@@ -431,7 +394,31 @@ def main():
                 shape_features,
                 mower_prefs,
                 show_recommendations,
+                grid_rect,
             )
+        else:
+            draw_panel_background(screen, grid_rect)
+
+        hud_info = {
+            "mode": mode,
+            "draw_mode": draw_mode,
+            "obstacle_count": len(obstacles_px) + (1 if len(active_obstacle_px) >= 3 else 0),
+            "start_set": bool(start_px),
+            "status_msg": status_msg,
+            "blade_w_m": blade_w_m,
+            "cells_per_m": cells_per_m,
+            "angle_step": ANGLE_STEPS[angle_step_idx],
+            "mower_speed_mps": mower_speed_mps,
+            "show_lanes": show_lanes,
+            "turn_penalties_on": turn_penalties_on,
+            "planning": mode == "planning",
+            "paused": paused,
+            "plan_metrics": plan_metrics,
+            "scale_m_per_px": scale_m_per_px,
+            "show_recommendations": show_recommendations,
+        }
+
+        draw_hud_panel(screen, fonts, hud_rect, hud_info)
 
         pygame.display.flip()
 
