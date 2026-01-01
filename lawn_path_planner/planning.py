@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import math
-from typing import List
+from typing import List, Optional
 
 from .config import ANGLE_STEPS, TURN_WEIGHT
 from .geometry import poly_bounds, rotate_points
-from .grid import bfs_path, first_free_cell, rasterize_polygon
+from .grid import bfs_path, first_free_cell, nearest_free_cell, rasterize_polygon
 from .types import Cell, PlanResult, Point
 
 
@@ -41,9 +41,10 @@ def targets_to_path(grid, start: Cell, targets: List[Cell]) -> List[Cell]:
     return path
 
 
-def score_path(path: List[Cell], turn_weight: float) -> tuple[float, int, int]:
+def score_path(path: List[Cell], turn_weight: float) -> tuple[float, int, int, int]:
     steps = len(path)
     turns = 0
+    u_turns = 0
     prev_dir = None
     cur = None
     for nxt in path:
@@ -55,9 +56,11 @@ def score_path(path: List[Cell], turn_weight: float) -> tuple[float, int, int]:
         ndir = (dx, dy)
         if prev_dir is not None and ndir != prev_dir:
             turns += 1
+            if ndir == (-prev_dir[0], -prev_dir[1]):
+                u_turns += 1
         prev_dir = ndir
         cur = nxt
-    return steps + turn_weight * turns, steps, turns
+    return steps + turn_weight * turns, steps, turns, u_turns
 
 
 def build_lane_centerlines(grid, sweep_step_cells: int) -> List[tuple[Cell, Cell]]:
@@ -83,7 +86,15 @@ def build_lane_centerlines(grid, sweep_step_cells: int) -> List[tuple[Cell, Cell
     return lanes
 
 
-def compute_best_plan(poly_m: List[Point], cells_per_meter: float, blade_w_m: float, angle_step_deg: int) -> PlanResult:
+def compute_best_plan(
+    poly_m: List[Point],
+    cells_per_meter: float,
+    blade_w_m: float,
+    angle_step_deg: int,
+    *,
+    start_point: Optional[Point] = None,
+    obstacles: Optional[List[List[Point]]] = None,
+) -> PlanResult:
     minx, miny, maxx, maxy = poly_bounds(poly_m)
     origin = ((minx + maxx) / 2.0, (miny + maxy) / 2.0)
 
@@ -91,15 +102,25 @@ def compute_best_plan(poly_m: List[Point], cells_per_meter: float, blade_w_m: fl
     for deg in range(0, 180, angle_step_deg):
         angle = math.radians(deg)
         rot = rotate_points(poly_m, angle, origin)
+        rot_obstacles = [rotate_points(ob, angle, origin) for ob in obstacles or []]
+        rot_start = rotate_points([start_point], angle, origin)[0] if start_point else None
 
-        grid, cell_size_m, sweep_step_cells = rasterize_polygon(rot, cells_per_meter, blade_w_m)
+        grid, cell_size_m, sweep_step_cells, minx, miny = rasterize_polygon(
+            rot, cells_per_meter, blade_w_m, rot_obstacles
+        )
         if grid.sum() == 0:
             continue
 
-        start = first_free_cell(grid)
+        if rot_start is not None:
+            sx = int((rot_start[0] - minx) / cell_size_m)
+            sy = int((rot_start[1] - miny) / cell_size_m)
+            start_candidate = (sx, sy)
+            start = nearest_free_cell(grid, start_candidate) or first_free_cell(grid)
+        else:
+            start = first_free_cell(grid)
         targets = boustrophedon_targets(grid, sweep_step_cells)
         path = targets_to_path(grid, start, targets)
-        score, steps, turns = score_path(path, TURN_WEIGHT)
+        score, steps, turns, u_turns = score_path(path, TURN_WEIGHT)
         lanes = build_lane_centerlines(grid, sweep_step_cells)
 
         candidate = PlanResult(
@@ -112,6 +133,7 @@ def compute_best_plan(poly_m: List[Point], cells_per_meter: float, blade_w_m: fl
             score=score,
             steps=steps,
             turns=turns,
+            u_turns=u_turns,
             lanes=lanes,
         )
         if best is None or candidate.score < best.score:

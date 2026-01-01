@@ -20,6 +20,7 @@ class PlanResult:
     score: float
     steps: int
     turns: int
+    u_turns: int
     lanes: List[Tuple[Cell, Cell]]
 
 
@@ -34,6 +35,7 @@ class PlanState:
     score: float
     steps: int
     turns: int
+    u_turns: int
     lanes: List[Tuple[Cell, Cell]]
     path_i: int = 0
     visited: Optional[np.ndarray] = None
@@ -56,6 +58,7 @@ class PlanState:
             score=result.score,
             steps=result.steps,
             turns=result.turns,
+            u_turns=result.u_turns,
             lanes=result.lanes,
         )
 
@@ -67,7 +70,16 @@ class PlannerJob:
     error: Optional[str] = None
     result: Optional[PlanResult] = None
 
-    def start(self, poly_m: List[Point], cells_per_m: float, blade_w_m: float, angle_step_deg: int, worker_fn):
+    def start(
+        self,
+        poly_m: List[Point],
+        cells_per_m: float,
+        blade_w_m: float,
+        angle_step_deg: int,
+        worker_fn,
+        start_point: Optional[Point] = None,
+        obstacles: Optional[List[List[Point]]] = None,
+    ):
         with self.lock:
             if self.running:
                 return
@@ -77,7 +89,14 @@ class PlannerJob:
 
         def worker():
             try:
-                best = worker_fn(poly_m, cells_per_m, blade_w_m, angle_step_deg)
+                best = worker_fn(
+                    poly_m,
+                    cells_per_m,
+                    blade_w_m,
+                    angle_step_deg,
+                    start_point=start_point,
+                    obstacles=obstacles,
+                )
                 with self.lock:
                     self.result = best
             except Exception as exc:  # noqa: BLE001
